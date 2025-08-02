@@ -796,6 +796,68 @@ class QwenRecapAgent:
             return full_response.strip()
         return None
     
+class PIP_loraload:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "lora_name": (folder_paths.get_filename_list("loras"), {"tooltip": "LoRA model file to load from ComfyUI/models/loras folder"}),
+                "strength": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01, "tooltip": "LoRA strength multiplier"}),
+            },
+            "optional": {
+                "prev_lora": ("WANVIDLORA", {"default": None, "tooltip": "Previous LoRA to chain with"}),
+                "low_mem_load": ("BOOLEAN", {"default": False, "tooltip": "Load LoRA with low memory usage"}),
+            }
+        }
+    
+    RETURN_TYPES = ("WANVIDLORA",)
+    RETURN_NAMES = ("lora",)
+    FUNCTION = "load_lora"
+    CATEGORY = "AIFSH/FluxModel"
+    DESCRIPTION = "Load LoRA weights for Flux model fine-tuning"
+    
+    def load_lora(self, lora_name, strength, prev_lora=None, low_mem_load=False):
+        try:
+            # Get full path to LoRA file
+            lora_path = folder_paths.get_full_path("loras", lora_name)
+            if not lora_path:
+                raise ValueError(f"LoRA file {lora_name} not found in loras folder")
+            
+            log.info(f"Loading LoRA: {lora_name} with strength {strength}")
+            
+            # Load LoRA weights
+            if low_mem_load:
+                # Use memory-efficient loading
+                lora_weights = load_torch_file(lora_path, safe_load=True)
+            else:
+                lora_weights = load_torch_file(lora_path)
+            
+            # Create LoRA configuration
+            lora_config = {
+                "name": lora_name,
+                "path": lora_path,
+                "weights": lora_weights,
+                "strength": strength,
+                "low_mem": low_mem_load
+            }
+            
+            # If there's a previous LoRA, chain them
+            if prev_lora is not None:
+                if isinstance(prev_lora, list):
+                    lora_list = prev_lora + [lora_config]
+                else:
+                    lora_list = [prev_lora, lora_config]
+            else:
+                lora_list = [lora_config]
+            
+            log.info(f"Successfully loaded LoRA: {lora_name}")
+            return (lora_list,)
+            
+        except Exception as e:
+            log.error(f"Failed to load LoRA {lora_name}: {str(e)}")
+            # Return empty LoRA config on failure
+            return (None,)
+
 def get_module_memory_mb(module):
     memory = 0
     for param in module.parameters():
@@ -1390,4 +1452,5 @@ NODE_CLASS_MAPPINGS = {
     "T5TextModelEncoder":T5TextModelEncoder,
     "FluxPromptEmbed":FluxPromptEmbed,
     "QwenRecapAgent":QwenRecapAgent,
+    "PIP_loraload":PIP_loraload,
 }
