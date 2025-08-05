@@ -125,10 +125,27 @@ class FluxModelLoader:
                 transformer = FluxTransformer2DModel(**TRANSFORMER_CONFIG)
             
         else:
-            transformer = FluxTransformer2DModel.from_pretrained(
-                "/root/PosterCraft/PosterCraft-v1_RL", 
-                torch_dtype=torch.bfloat16
-            )
+            # Try to load from local ComfyUI models directory
+            model_path = folder_paths.get_full_path("diffusion_models", "PosterCraft-v1_RL_fp16.safetensors")
+            
+            # If exact name not found, try to find similar files
+            if not model_path or not os.path.exists(model_path):
+                # Try alternative file names (like with (1) suffix)
+                alt_names = [
+                    "PosterCraft-v1_RL_fp16(1).safetensors",
+                    "PosterCraft-v1_RL_fp16 (1).safetensors"
+                ]
+                for alt_name in alt_names:
+                    model_path = folder_paths.get_full_path("diffusion_models", alt_name)
+                    if model_path and os.path.exists(model_path):
+                        break
+                else:
+                    raise FileNotFoundError(f"PosterCraft model not found. Please download PosterCraft-v1_RL_fp16.safetensors and place it in ComfyUI/models/diffusion_models/")
+            
+            # Load from local safetensors file
+            transformer = FluxTransformer2DModel(**TRANSFORMER_CONFIG)
+            state_dict = load_torch_file(model_path)
+            transformer.load_state_dict(state_dict, strict=False)
         transformer.eval()
         # transformer.to(transformer_load_device)
         comfy_model = FluxModel(
@@ -205,7 +222,27 @@ class ClipTextModelEncoder:
         save_model_path =  save_model_path = os.path.join(folder_paths.folder_names_and_paths["text_encoders"][0][0],
                                        "flux.1-dev_text_encoder_bf16.safetensors")
         if not os.path.exists(save_model_path):
-            text_encoder =CLIPTextModel.from_pretrained("/root/PosterCraft/FLUX.1-dev/text_encoder")
+            # Try to load from local ComfyUI models directory
+            text_encoder_path = folder_paths.get_full_path("text_encoders", "flux.1-dev_text_encoder_bf16.safetensors")
+            
+            # If exact name not found, try to find similar files
+            if not text_encoder_path or not os.path.exists(text_encoder_path):
+                # Try alternative file names (like with (1) suffix)
+                alt_names = [
+                    "flux.1-dev_text_encoder_bf16(1).safetensors",
+                    "flux.1-dev_text_encoder_bf16 (1).safetensors"
+                ]
+                for alt_name in alt_names:
+                    text_encoder_path = folder_paths.get_full_path("text_encoders", alt_name)
+                    if text_encoder_path and os.path.exists(text_encoder_path):
+                        break
+                else:
+                    raise FileNotFoundError(f"Text encoder model not found. Please download flux.1-dev_text_encoder_bf16.safetensors and place it in ComfyUI/models/text_encoders/")
+            
+            # Load the text encoder from safetensors
+            text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14", torch_dtype=torch.bfloat16)
+            state_dict = load_torch_file(text_encoder_path)
+            text_encoder.load_state_dict(state_dict, strict=False)
 
             torch.save(text_encoder.state_dict(),save_model_path)
         else:
@@ -310,7 +347,27 @@ class T5TextModelEncoder:
         save_model_path = os.path.join(folder_paths.folder_names_and_paths["text_encoders"][0][0],
                                        "flux.1-dev_text_encoder_2_bf16.safetensors")
         if not os.path.exists(save_model_path):
-            text_encoder_2 = T5EncoderModel.from_pretrained("/root/PosterCraft/FLUX.1-dev/text_encoder_2")
+            # Try to load from local ComfyUI models directory  
+            text_encoder_2_path = folder_paths.get_full_path("text_encoders", "flux.1-dev_text_encoder_2_bf16.safetensors")
+            
+            # If exact name not found, try to find similar files
+            if not text_encoder_2_path or not os.path.exists(text_encoder_2_path):
+                # Try alternative file names (like with (1) suffix)
+                alt_names = [
+                    "flux.1-dev_text_encoder_2_bf16(1).safetensors",
+                    "flux.1-dev_text_encoder_2_bf16 (1).safetensors"
+                ]
+                for alt_name in alt_names:
+                    text_encoder_2_path = folder_paths.get_full_path("text_encoders", alt_name)
+                    if text_encoder_2_path and os.path.exists(text_encoder_2_path):
+                        break
+                else:
+                    raise FileNotFoundError(f"Text encoder 2 model not found. Please download flux.1-dev_text_encoder_2_bf16.safetensors and place it in ComfyUI/models/text_encoders/")
+            
+            # Load the T5 text encoder from safetensors
+            text_encoder_2 = T5EncoderModel.from_pretrained("google/t5-v1_1-xxl", torch_dtype=torch.bfloat16)
+            state_dict = load_torch_file(text_encoder_2_path)
+            text_encoder_2.load_state_dict(state_dict, strict=False)
             param_count = sum(1 for _ in text_encoder_2.named_parameters())
             for name, param in tqdm(text_encoder_2.named_parameters(), 
                 desc=f"Loading text_encoder_2 parameters to cpu", 
