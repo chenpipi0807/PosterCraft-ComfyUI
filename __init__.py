@@ -238,10 +238,44 @@ class ClipTextModelEncoder:
                 else:
                     raise FileNotFoundError(f"Text encoder model not found. Please download flux.1-dev_text_encoder_bf16.safetensors and place it in ComfyUI/models/text_encoders/")
             
-            # Load the text encoder from safetensors
-            text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14", torch_dtype=torch.bfloat16)
+            # Load the text encoder from safetensors using local config
+            with init_empty_weights():
+                params = {
+                    "attention_dropout": 0.0,
+                    "bos_token_id": 0,
+                    "dropout": 0.0,
+                    "eos_token_id": 2,
+                    "hidden_act": "quick_gelu",
+                    "hidden_size": 768,
+                    "initializer_factor": 1.0,
+                    "initializer_range": 0.02,
+                    "intermediate_size": 3072,
+                    "layer_norm_eps": 1e-05,
+                    "max_position_embeddings": 77,
+                    "model_type": "clip_text_model",
+                    "num_attention_heads": 12,
+                    "num_hidden_layers": 12,
+                    "pad_token_id": 1,
+                    "projection_dim": 768,
+                    "torch_dtype": "bfloat16",
+                    "vocab_size": 49408
+                }
+                cfg = CLIPTextConfig(**params)
+                text_encoder = CLIPTextModel(cfg)
+            
             state_dict = load_torch_file(text_encoder_path)
-            text_encoder.load_state_dict(state_dict, strict=False)
+            # Load weights using accelerate with error handling
+            param_count = sum(1 for _ in text_encoder.named_parameters())
+            for name, param in tqdm(text_encoder.named_parameters(), 
+                desc=f"Loading text_encoder parameters to device", 
+                total=param_count,
+                leave=True):
+                if name in state_dict:
+                    dtype_to_use = torch.bfloat16
+                    set_module_tensor_to_device(text_encoder, name, device=device, dtype=dtype_to_use, value=state_dict[name])
+                else:
+                    log.warning(f"Missing weight for {name} in text encoder state dict")
+            text_encoder.text_model.embeddings.position_ids = text_encoder.text_model.embeddings.position_ids.to(device)
 
             torch.save(text_encoder.state_dict(),save_model_path)
         else:
@@ -363,17 +397,50 @@ class T5TextModelEncoder:
                 else:
                     raise FileNotFoundError(f"Text encoder 2 model not found. Please download flux.1-dev_text_encoder_2_bf16.safetensors and place it in ComfyUI/models/text_encoders/")
             
-            # Load the T5 text encoder from safetensors
-            text_encoder_2 = T5EncoderModel.from_pretrained("google/t5-v1_1-xxl", torch_dtype=torch.bfloat16)
+            # Load the T5 text encoder from safetensors using local config
+            with init_empty_weights():
+                params = {
+                    "classifier_dropout": 0.0,
+                    "d_ff": 10240,
+                    "d_kv": 64,
+                    "d_model": 4096,
+                    "decoder_start_token_id": 0,
+                    "dense_act_fn": "gelu_new",
+                    "dropout_rate": 0.1,
+                    "eos_token_id": 1,
+                    "feed_forward_proj": "gated-gelu",
+                    "initializer_factor": 1.0,
+                    "is_encoder_decoder": True,
+                    "is_gated_act": True,
+                    "layer_norm_epsilon": 1e-06,
+                    "model_type": "t5",
+                    "num_decoder_layers": 24,
+                    "num_heads": 64,
+                    "num_layers": 24,
+                    "output_past": True,
+                    "pad_token_id": 0,
+                    "relative_attention_max_distance": 128,
+                    "relative_attention_num_buckets": 32,
+                    "tie_word_embeddings": False,
+                    "torch_dtype": "bfloat16",
+                    "use_cache": False,
+                    "vocab_size": 32128
+                }
+                cfg = T5Config(**params)
+                text_encoder_2 = T5EncoderModel(cfg)
+            
             state_dict = load_torch_file(text_encoder_2_path)
-            text_encoder_2.load_state_dict(state_dict, strict=False)
+            # Load weights using accelerate with error handling
             param_count = sum(1 for _ in text_encoder_2.named_parameters())
             for name, param in tqdm(text_encoder_2.named_parameters(), 
                 desc=f"Loading text_encoder_2 parameters to cpu", 
                 total=param_count,
                 leave=True):
-                dtype_to_use = torch.bfloat16
-                set_module_tensor_to_device(text_encoder_2, name, device=offload_device, dtype=dtype_to_use, value=param)
+                if name in state_dict:
+                    dtype_to_use = torch.bfloat16
+                    set_module_tensor_to_device(text_encoder_2, name, device=offload_device, dtype=dtype_to_use, value=state_dict[name])
+                else:
+                    log.warning(f"Missing weight for {name} in text encoder 2 state dict")
             torch.save(text_encoder_2.state_dict(),save_model_path)
         else:
             sd = torch.load(model_path)
