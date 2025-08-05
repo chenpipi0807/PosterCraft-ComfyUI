@@ -70,7 +70,6 @@ class FluxModelLoader:
                     #"spargeattn_tune",
                     ], {"default": "sdpa"}),
                 "block_swap_args": ("FLUXBLOCKSWAPARGS", ),
-                "lora": ("WANVIDLORA", {"default": None}),
             }
         }
 
@@ -79,7 +78,7 @@ class FluxModelLoader:
     FUNCTION = "loadmodel"
     CATEGORY = "AIFSH/FluxModel"
 
-    def loadmodel(self, model, load_device,attention_mode="sdpa", block_swap_args=None, lora=None):
+    def loadmodel(self, model, load_device,attention_mode="sdpa", block_swap_args=None):
         
         transformer = None
         mm.unload_all_models()
@@ -570,7 +569,7 @@ class PosterCraftSample:
 
         num_images_per_prompt = 1
         generator = torch.Generator(device=device).manual_seed(seed)
-        self.vae_scale_factor = 6
+        self.vae_scale_factor = 8
         scheduler = FlowMatchEulerDiscreteScheduler(
             base_image_seq_len = 256,
             base_shift=0.5,
@@ -584,6 +583,9 @@ class PosterCraftSample:
         
         # 4. Prepare latent variables
         num_channels_latents = transformer.config.in_channels // 4
+        # Store original dimensions for later use
+        original_height, original_width = height, width
+        
         latents, latent_image_ids = self.prepare_latents(
             batch_size * num_images_per_prompt,
             num_channels_latents,
@@ -650,7 +652,7 @@ class PosterCraftSample:
             comfy_par.update(1)
 
         
-        latents = self._unpack_latents(latents,height=height,width=width,
+        latents = self._unpack_latents(latents,height=original_height,width=original_width,
                                            vae_scale_factor =self.vae_scale_factor)
         scaling_factor = 0.3611
         shift_factor = 0.1159
@@ -734,13 +736,14 @@ class PosterCraftSample:
 
         # VAE applies 8x compression on images but we must also account for packing which requires
         # latent height and width to be divisible by 2.
-        height = 2 * (int(height) // (vae_scale_factor * 2))
-        width = 2 * (int(width) // (vae_scale_factor * 2))
+        # Note: height and width should already be adjusted in prepare_latents
+        adjusted_height = 2 * (int(height) // (vae_scale_factor * 2))
+        adjusted_width = 2 * (int(width) // (vae_scale_factor * 2))
 
-        latents = latents.view(batch_size, height // 2, width // 2, channels // 4, 2, 2)
+        latents = latents.view(batch_size, adjusted_height // 2, adjusted_width // 2, channels // 4, 2, 2)
         latents = latents.permute(0, 3, 1, 4, 2, 5)
 
-        latents = latents.reshape(batch_size, channels // (2 * 2), height, width)
+        latents = latents.reshape(batch_size, channels // (2 * 2), adjusted_height, adjusted_width)
 
         return latents
 
@@ -853,67 +856,7 @@ class QwenRecapAgent:
             return full_response.strip()
         return None
     
-class PIP_loraload:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "lora_name": (folder_paths.get_filename_list("loras"), {"tooltip": "LoRA model file to load from ComfyUI/models/loras folder"}),
-                "strength": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01, "tooltip": "LoRA strength multiplier"}),
-            },
-            "optional": {
-                "prev_lora": ("WANVIDLORA", {"default": None, "tooltip": "Previous LoRA to chain with"}),
-                "low_mem_load": ("BOOLEAN", {"default": False, "tooltip": "Load LoRA with low memory usage"}),
-            }
-        }
-    
-    RETURN_TYPES = ("WANVIDLORA",)
-    RETURN_NAMES = ("lora",)
-    FUNCTION = "load_lora"
-    CATEGORY = "AIFSH/FluxModel"
-    DESCRIPTION = "Load LoRA weights for Flux model fine-tuning"
-    
-    def load_lora(self, lora_name, strength, prev_lora=None, low_mem_load=False):
-        try:
-            # Get full path to LoRA file
-            lora_path = folder_paths.get_full_path("loras", lora_name)
-            if not lora_path:
-                raise ValueError(f"LoRA file {lora_name} not found in loras folder")
-            
-            log.info(f"Loading LoRA: {lora_name} with strength {strength}")
-            
-            # Load LoRA weights
-            if low_mem_load:
-                # Use memory-efficient loading
-                lora_weights = load_torch_file(lora_path, safe_load=True)
-            else:
-                lora_weights = load_torch_file(lora_path)
-            
-            # Create LoRA configuration
-            lora_config = {
-                "name": lora_name,
-                "path": lora_path,
-                "weights": lora_weights,
-                "strength": strength,
-                "low_mem": low_mem_load
-            }
-            
-            # If there's a previous LoRA, chain them
-            if prev_lora is not None:
-                if isinstance(prev_lora, list):
-                    lora_list = prev_lora + [lora_config]
-                else:
-                    lora_list = [prev_lora, lora_config]
-            else:
-                lora_list = [lora_config]
-            
-            log.info(f"Successfully loaded LoRA: {lora_name}")
-            return (lora_list,)
-            
-        except Exception as e:
-            log.error(f"Failed to load LoRA {lora_name}: {str(e)}")
-            # Return empty LoRA config on failure
-            return (None,)
+
 
 def get_module_memory_mb(module):
     memory = 0
@@ -1509,5 +1452,4 @@ NODE_CLASS_MAPPINGS = {
     "T5TextModelEncoder":T5TextModelEncoder,
     "FluxPromptEmbed":FluxPromptEmbed,
     "QwenRecapAgent":QwenRecapAgent,
-    "PIP_loraload":PIP_loraload,
 }
